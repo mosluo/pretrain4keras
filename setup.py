@@ -4,8 +4,8 @@ with open("README.md", "r") as fh:
     long_description = fh.read()
 
 setuptools.setup(
-    name="pretrain4keras2",
-    version="0.0.3ba",
+    name="pretrain4keras",
+    version="0.0.4",
     author="mos_luo",
     author_email="mos_luo@163.com",
     description="用tf.keras (TF2.0+) 的稳定API实现NLP预训练模型，例如BERT、BART等。",
