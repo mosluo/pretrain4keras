@@ -10,10 +10,28 @@
 
 ## 使用例子
 ### BERT
-- bert参数下载
+- bert参数下载：
+    - Google原版bert: https://github.com/google-research/bert
 - 代码 
 ```python 
-from pretrain4keras import bert_builder
+from pretrain4keras.models.bert import BertBuilder
+
+# 0.下载参数，存放于bert_dir下
+# Google原版bert: https://github.com/google-research/bert
+bert_dir = "/Users/mos_luo/project/pretrain_model/bert/chinese_L-12_H-768_A-12/"
+config_file = bert_dir + "bert_config.json"
+checkpoint_file = bert_dir + "bert_model.ckpt"
+vocab_file = bert_dir + "vocab.txt"
+
+# 1.创建keras bert模型与tokenizer
+keras_bert, tokenizer, config = BertBuilder().build_bert(
+    config_file=config_file, checkpoint_file=checkpoint_file, vocab_file=vocab_file
+)
+
+# 2.创建输入样本
+# tokenizer = builder.tokenizer(vocab_file)
+inputs = tokenizer(["语言模型"], return_tensors="tf")
+print(keras_bert(inputs))
 ```
 ### BART
 - BART参数下载

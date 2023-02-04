@@ -5,11 +5,13 @@
 @datetime:2023/1/31 11:42 上午
 功能：keras的bart
 """
+import json
 import pprint
 import torch
 import numpy as np
 import tensorflow as tf
 from tensorflow import keras
+
 
 from pretrain4keras.layers import (
     PositionLayer,
@@ -46,7 +48,7 @@ def build_embedding_layers(
         epsilon=1e-5, name=name_prefix + ".layernorm_embedding"
     )(x)
     hidden_states = keras.layers.Dropout(
-        config["dropout_rate"], name=name_prefix + ".dropout_rate"
+        config["dropout"], name=name_prefix + ".dropout_rate"
     )(hidden_states)
     return hidden_states
 
@@ -92,7 +94,7 @@ def build_transformer_encoder_layer(
         attention_mask=attention_mask,
     )
     hidden_states = keras.layers.Dropout(
-        config["dropout_rate"], name=name_prefix + ".dropout1"
+        config["dropout"], name=name_prefix + ".dropout1"
     )(hidden_states)
     hidden_states = keras.layers.Add(name=name_prefix + ".add1")(
         [residual, hidden_states]
@@ -107,7 +109,7 @@ def build_transformer_encoder_layer(
     )(hidden_states)
     hidden_states = fc2(hidden_states)
     hidden_states = keras.layers.Dropout(
-        config["dropout_rate"], name=name_prefix + ".dropout2"
+        config["dropout"], name=name_prefix + ".dropout2"
     )(hidden_states)
     hidden_states = keras.layers.Add(name=name_prefix + ".add2")(
         [residual, hidden_states]
@@ -172,7 +174,7 @@ def build_transformer_decoder_layer(
         attention_mask=causal_mask,
     )
     hidden_states = keras.layers.Dropout(
-        config["dropout_rate"], name=name_prefix + ".dropout1"
+        config["dropout"], name=name_prefix + ".dropout1"
     )(hidden_states)
     hidden_states = keras.layers.Add(name=name_prefix + ".add1")(
         [residual, hidden_states]
@@ -188,7 +190,7 @@ def build_transformer_decoder_layer(
         attention_mask=cross_attention_mask,
     )
     hidden_states = keras.layers.Dropout(
-        config["dropout_rate"], name=name_prefix + ".dropout2"
+        config["dropout"], name=name_prefix + ".dropout2"
     )(hidden_states)
     hidden_states = keras.layers.Add(name=name_prefix + ".add2")(
         [residual, hidden_states]
@@ -203,7 +205,7 @@ def build_transformer_decoder_layer(
     )(hidden_states)
     hidden_states = fc2(hidden_states)
     hidden_states = keras.layers.Dropout(
-        config["dropout_rate"], name=name_prefix + ".dropout3"
+        config["dropout"], name=name_prefix + ".dropout3"
     )(hidden_states)
     hidden_states = keras.layers.Add(name=name_prefix + ".add3")(
         [residual, hidden_states]
@@ -219,80 +221,99 @@ class BartBuilder:
         return keras.initializers.truncated_normal(stddev=initializer_range)
 
     @staticmethod
-    def tokenizer(pretrained_name="fnlp/bart-base-chinese"):
-        """复旦的中文bart用的是bert的tokenizer"""
-        from transformers import BertTokenizerFast
+    def tokenizer(vocab_file, tokenizer_class="BertTokenizer"):
+        """
+        复旦的中文bart用的是bert的tokenizer，例如fnlp/bart-base-chinese
+        如果你用的是非复旦参数，那么要用BartTokenizer
+        """
+        from transformers import BertTokenizer, BartTokenizer
 
-        return BertTokenizerFast.from_pretrained(pretrained_name)
+        if tokenizer_class == "BertTokenizer":
+            return BertTokenizer.from_pretrained(vocab_file)
+        else:
+            return BartTokenizer.from_pretrained(vocab_file)
 
     @staticmethod
-    def read_config_file():
+    def read_config_file(config_file):
         """读配置参数，来自huggingface的模型fnlp/bart-base-chinese配置"""
-        config = {
-            "activation_dropout": 0.1,
-            "activation_function": "gelu",
-            "add_bias_logits": False,
-            "add_final_layer_norm": False,
-            "architectures": ["BartForConditionalGeneration"],
-            "attention_dropout": 0.1,
-            "bos_token_id": 101,
-            "classif_dropout": 0.1,
-            "classifier_dropout": 0.0,
-            "d_model": 768,
-            "decoder_attention_heads": 12,
-            "decoder_ffn_dim": 3072,
-            "decoder_layerdrop": 0.0,
-            "decoder_layers": 6,
-            "decoder_start_token_id": 102,
-            "dropout_rate": 0.1,
-            "early_stopping": True,
-            "encoder_attention_heads": 12,
-            "encoder_ffn_dim": 3072,
-            "encoder_layerdrop": 0.0,
-            "encoder_layers": 6,
-            "eos_token_id": 102,
-            "forced_eos_token_id": 102,
-            "gradient_checkpointing": False,
-            "id2label": {"0": "LABEL_0", "1": "LABEL_1", "2": "LABEL_2"},
-            "init_std": 0.02,
-            "is_encoder_decoder": True,
-            "label2id": {"LABEL_0": 0, "LABEL_1": 1, "LABEL_2": 2},
-            "max_position_embeddings": 1024,
-            "model_type": "bart",
-            "no_repeat_ngram_size": 3,
-            "normalize_before": False,
-            "normalize_embedding": True,
-            "num_beams": 4,
-            "num_hidden_layers": 6,
-            "pad_token_id": 0,
-            "scale_embedding": False,
-            "task_specific_params": {
-                "summarization": {
-                    "length_penalty": 1.0,
-                    "max_length": 128,
-                    "min_length": 12,
-                    "num_beams": 4,
-                },
-                "summarization_cnn": {
-                    "length_penalty": 2.0,
-                    "max_length": 142,
-                    "min_length": 56,
-                    "num_beams": 4,
-                },
-                "summarization_xsum": {
-                    "length_penalty": 1.0,
-                    "max_length": 62,
-                    "min_length": 11,
-                    "num_beams": 6,
-                },
-            },
-            "transformers_version": "4.4.1",
-            "use_cache": True,
-            "tokenizer_class": "BertTokenizer",
-            "vocab_size": 51271,
-        }
-
+        with open(config_file) as f:
+            config_json = f.read()
+        config = json.loads(config_json)
+        # 将文本true、false改成bool
+        for k in config:
+            if isinstance(config[k], str):
+                if config[k].lower() == "true":
+                    config[k] = True
+                if config[k].lower() == "false":
+                    config[k] = False
+        pprint.pprint(config)
         return config
+
+        # config = {
+        #     "activation_dropout": 0.1,
+        #     "activation_function": "gelu",
+        #     "add_bias_logits": False,
+        #     "add_final_layer_norm": False,
+        #     "architectures": ["BartForConditionalGeneration"],
+        #     "attention_dropout": 0.1,
+        #     "bos_token_id": 101,
+        #     "classif_dropout": 0.1,
+        #     "classifier_dropout": 0.0,
+        #     "d_model": 768,
+        #     "decoder_attention_heads": 12,
+        #     "decoder_ffn_dim": 3072,
+        #     "decoder_layerdrop": 0.0,
+        #     "decoder_layers": 6,
+        #     "decoder_start_token_id": 102,
+        #     "dropout_rate": 0.1,
+        #     "early_stopping": True,
+        #     "encoder_attention_heads": 12,
+        #     "encoder_ffn_dim": 3072,
+        #     "encoder_layerdrop": 0.0,
+        #     "encoder_layers": 6,
+        #     "eos_token_id": 102,
+        #     "forced_eos_token_id": 102,
+        #     "gradient_checkpointing": False,
+        #     "id2label": {"0": "LABEL_0", "1": "LABEL_1", "2": "LABEL_2"},
+        #     "init_std": 0.02,
+        #     "is_encoder_decoder": True,
+        #     "label2id": {"LABEL_0": 0, "LABEL_1": 1, "LABEL_2": 2},
+        #     "max_position_embeddings": 1024,
+        #     "model_type": "bart",
+        #     "no_repeat_ngram_size": 3,
+        #     "normalize_before": False,
+        #     "normalize_embedding": True,
+        #     "num_beams": 4,
+        #     "num_hidden_layers": 6,
+        #     "pad_token_id": 0,
+        #     "scale_embedding": False,
+        #     "task_specific_params": {
+        #         "summarization": {
+        #             "length_penalty": 1.0,
+        #             "max_length": 128,
+        #             "min_length": 12,
+        #             "num_beams": 4,
+        #         },
+        #         "summarization_cnn": {
+        #             "length_penalty": 2.0,
+        #             "max_length": 142,
+        #             "min_length": 56,
+        #             "num_beams": 4,
+        #         },
+        #         "summarization_xsum": {
+        #             "length_penalty": 1.0,
+        #             "max_length": 62,
+        #             "min_length": 11,
+        #             "num_beams": 6,
+        #         },
+        #     },
+        #     "transformers_version": "4.4.1",
+        #     "use_cache": True,
+        #     "tokenizer_class": "BertTokenizer",
+        #     "vocab_size": 51271,
+        # }
+        #
+        # return config
 
     @staticmethod
     def get_inputs():
@@ -486,9 +507,9 @@ class BartBuilder:
         return encoder_decoder  # 返回完整的模型
 
     @staticmethod
-    def read_pytorch_weights(pt_bin_file):
+    def read_pytorch_weights(checkpoint_file):
         """读取pytorch的模型参数，返回字典"""
-        state_dict = torch.load(pt_bin_file, map_location="cpu")
+        state_dict = torch.load(checkpoint_file, map_location="cpu")
         return state_dict
 
     @staticmethod
@@ -651,27 +672,40 @@ class BartBuilder:
             else:
                 print(layer.name + "不加载参数")
 
+    def build_bart(self, config_file, checkpoint_file=None, vocab_file=None):
+        """创建bart与tokenizer，bart自动加载参数"""
+        config = self.read_config_file(config_file)
+        keras_bart = self.build_keras_bart_model(config, mode="encoder_decoder")
+
+        if checkpoint_file:
+            # 加载参数
+            pytorch_state_dict = self.read_pytorch_weights(checkpoint_file)
+            for name in pytorch_state_dict:
+                print(name, "-->", list(pytorch_state_dict[name].shape))
+            keras_bart = self.load_pytorch_weights(keras_bart, pytorch_state_dict)
+            del pytorch_state_dict  # 释放资源
+
+        tokenizer = None
+        if vocab_file:
+            tokenizer = self.tokenizer(vocab_file, config["tokenizer_class"])
+        return keras_bart, tokenizer, config
+
 
 if __name__ == "__main__":
     # 0.手动从fnlp/bart-base-chinese下载文件
-    # 从https://huggingface.co/fnlp/bart-base-chinese/tree/main下载文件夹的所有文件
-    pretrain_name = "/Users/mos_luo/project/pretrain_model/huggingface_transformers/fnlp/bart-base-chinese-v2"
+    # 从https://huggingface.co/fnlp/bart-base-chinese/tree/4e93f21dca95a07747f434b0f9fe5d49cacc0441下载文件夹的所有文件
+    pretrain_dir = "/Users/normansluo/project/pretrain_model/huggingface_transformers/fnlp/bart-base-chinese-v2/"
+    checkpoint_file = pretrain_dir + "pytorch_model.bin"
+    config_file = pretrain_dir + "config.json"
+    vocab_file = pretrain_dir + "vocab.txt"
 
     # 1.创建keras bart模型
     builder = BartBuilder()
-    config = builder.read_config_file()
-    keras_bart = builder.build_keras_bart_model(config, mode="encoder_decoder")
-    keras_bart.summary()
+    keras_bart, tokenizer, config = builder.build_bart(
+        config_file=config_file, checkpoint_file=checkpoint_file, vocab_file=vocab_file
+    )
 
-    # 2.从pytorch bart模型加载参数到keras bart
-    pt_bin_file = pretrain_name + "/pytorch_model.bin"
-    pytorch_state_dict = builder.read_pytorch_weights(pt_bin_file)
-    for name in pytorch_state_dict:
-        print(name, "-->", list(pytorch_state_dict[name].shape))
-    keras_bart = builder.load_pytorch_weights(keras_bart, pytorch_state_dict)
-
-    # 3.创建输入样本
-    tokenizer = builder.tokenizer(pretrain_name)  # 复旦中文bart用bert的tokenizer
+    # 2.创建输入样本
     inputs = tokenizer(["北京是[MASK]的首都"], return_tensors="tf")
     del inputs["token_type_ids"]
     inputs["decoder_input_ids"] = tf.constant(
@@ -679,63 +713,9 @@ if __name__ == "__main__":
     )
     pprint.pprint(inputs)
 
-    # 4.keras bart的输出
+    # 3.keras bart的输出
     print("=========== keras bart的输出 ============>")
     keras_bart_out = keras_bart(inputs)
     print("keras_bart_out=")
     print(keras_bart_out)
     print(tokenizer.batch_decode(tf.argmax(keras_bart_out["lm"], axis=2).numpy()))
-
-    # 5.对比transformers的bart输出结果
-    print("=========== 对比transformers的bart输出结果 ============>")
-    from transformers import TFBartModel
-
-    transformers_bart = TFBartModel.from_pretrained(
-        pretrained_model_name_or_path=pretrain_name, from_pt=True
-    )
-    transformers_bart_out = transformers_bart(inputs)
-    print("transformers_bart_out.encoder_last_hidden_state=")
-    print(transformers_bart_out.encoder_last_hidden_state)
-    print("transformers_bart_out.last_hidden_state=")
-    print(transformers_bart_out.last_hidden_state)
-
-    # 6.保存
-    print("=========== 测试保存与加载 =============>")
-    print("开始保存")
-    bart_save_dir = "/Users/mos_luo/project/my_model/20220828_keras4bart/bart_save/"
-    keras_bart.save(bart_save_dir)
-    print("保存成功")
-    bart2 = keras.models.load_model(
-        bart_save_dir,
-        custom_objects={
-            "PositionLayer": PositionLayer,
-            "MultiHeadAttentionV2": MultiHeadAttentionV2,
-            "SharedEmbeddingLayer": SharedEmbeddingLayer,
-            "AttentionMaskLayer": AttentionMaskLayer,
-            "CausalMaskLayer": CausalMaskLayer,
-        },
-    )
-    print("加载成功")
-    print(tokenizer.batch_decode(tf.argmax(bart2(inputs)["lm"], axis=2).numpy()))
-
-    # # 7.encoder与decoder拆分
-    print("=========== encoder与decoder拆分 ================")
-    # 创建encoder，并加载bart的keras参数
-    encoder = builder.build_keras_bart_model(config, mode="encoder")
-    builder.load_weights_from_keras_bart(keras_bart, encoder)
-
-    # 创建decoder，并加载bart的keras参数
-    decoder = builder.build_keras_bart_model(config, mode="decoder")
-    builder.load_weights_from_keras_bart(keras_bart, decoder)
-
-    encoder_hidden_states = encoder(
-        {"input_ids": inputs["input_ids"], "attention_mask": inputs["attention_mask"]}
-    )
-    decoder_out = decoder(
-        {
-            "attention_mask": inputs["attention_mask"],
-            "decoder_input_ids": inputs["decoder_input_ids"],
-            "encoder_hidden_states": encoder_hidden_states,
-        }
-    )
-    print(tokenizer.batch_decode(tf.argmax(decoder_out["lm"], axis=2).numpy()))
