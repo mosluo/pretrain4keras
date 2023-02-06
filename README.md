@@ -84,6 +84,9 @@ print(tokenizer.batch_decode(tf.argmax(keras_bart_out["lm"], axis=2).numpy()))
     - 主要是为了提供tokenizer，不是必须的，可以不装。
     - 你也可以用其他的tokenizer实现。
 
+## 参考
+- https://github.com/bojone/bert4keras
+- https://github.com/huggingface/transformers
 
 ## 更新日志
 - 2023.01.15：添加BART
