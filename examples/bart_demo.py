@@ -7,7 +7,7 @@
 """
 import pprint
 import tensorflow as tf
-import tensorflow.keras as keras
+from tensorflow import keras
 from pretrain4keras.models.bart import BartBuilder
 
 # 0.手动从fnlp/bart-base-chinese下载文件

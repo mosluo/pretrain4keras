@@ -8,7 +8,7 @@
 
 from typing import List
 import tensorflow as tf
-import tensorflow.keras as keras
+from tensorflow import keras
 
 
 def shape_list(tensor: tf.Tensor) -> List[int]:
@@ -30,3 +30,15 @@ def shape_list(tensor: tf.Tensor) -> List[int]:
     static = tensor.shape.as_list()
 
     return [dynamic[i] if s is None else s for i, s in enumerate(static)]
+
+
+def gelu(x):
+    return 0.5 * x * (1.0 + tf.math.erf(x / tf.math.sqrt(2.0)))
+    # tf2.7的实现
+    # return 0.5 * x * (1.0 + tf.math.erf(x / tf.cast(1.4142135623730951, x.dtype)))
+
+
+custom_objects = {
+    "gelu": gelu,
+}
+keras.utils.get_custom_objects().update(custom_objects)

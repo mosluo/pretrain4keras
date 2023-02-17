@@ -9,7 +9,6 @@
 from typing import List, Optional, Tuple
 import tensorflow as tf
 from tensorflow import keras
-import tensorflow.keras.backend as K
 from .snippets import shape_list
 
 
@@ -209,7 +208,7 @@ class UniMaskLayer(keras.layers.Layer):
         """
         idxs = keras.backend.cumsum(segment_ids, axis=1)
         mask = idxs[:, None, :] <= idxs[:, :, None]
-        mask = K.cast(mask, K.floatx())
+        mask = tf.cast(mask, tf.float32)
         return mask
 
     # 如果要让自定义的Layer通过Functional API 组合成模型时可以序列化，需要自定义get_config方法。

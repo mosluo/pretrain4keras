@@ -7,7 +7,7 @@
 """
 
 import tensorflow as tf
-import tensorflow.keras as keras
+from tensorflow import keras
 from pretrain4keras.models.bert import BertBuilder
 
 # 0.下载参数，存放于bert_dir下
