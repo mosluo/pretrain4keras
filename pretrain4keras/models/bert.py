@@ -20,14 +20,16 @@ from pretrain4keras.layers import (
 
 
 def build_embedding_layers(
-    inputs,
+    embedding_input_dict,
     shared_embedding_layer,
     initializer=None,
     config=None,
     name_prefix="",
 ):
     """创建embedding层: token+position+layer_norm+dropout_rate"""
-    input_ids, positions, token_type_ids = inputs
+    input_ids = embedding_input_dict["input_ids"]
+    positions = embedding_input_dict["encoder_positions"]
+    token_type_ids = embedding_input_dict["token_type_ids"]
 
     # token向量
     embed_tokens = shared_embedding_layer(input_ids)
@@ -175,9 +177,16 @@ class BertBuilder:
 
     @staticmethod
     def tokenizer(vocab_file):
-        from transformers import BertTokenizer
+        try:
+            from transformers import BertTokenizer
 
-        return BertTokenizer.from_pretrained(vocab_file)
+            return BertTokenizer.from_pretrained(vocab_file)
+        except:
+            print(
+                "不存在transformers或者transformers.BertTokenizer.from_pretrained(vocab_file)异常，请安装transformers==4.25.1。"
+                "此时返回None"
+            )
+            return None
 
     @staticmethod
     def read_config_file(config_file):
@@ -198,7 +207,12 @@ class BertBuilder:
         token_type_ids = keras.Input(
             shape=(None,), name="token_type_ids", dtype=tf.int32
         )
-        return input_ids, attention_mask, token_type_ids
+        inputs = {
+            "input_ids": input_ids,
+            "attention_mask": attention_mask,
+            "token_type_ids": token_type_ids,
+        }
+        return inputs
 
     def build_keras_bert_model(self, config):
         """
@@ -215,15 +229,20 @@ class BertBuilder:
         )
 
         # 输入
-        (input_ids, attention_mask, token_type_ids) = self.get_inputs()
+        inputs = self.get_inputs()
+        input_ids = inputs["input_ids"]
+        attention_mask = inputs["attention_mask"]
+        token_type_ids = inputs["token_type_ids"]
 
         # 创建encoder
         # 位置id
         encoder_positions = position_layer(input_ids)
 
         # embedding
+        embedding_input_dict = {"encoder_positions": encoder_positions}
+        embedding_input_dict.update(inputs)
         encoder_hidden_states = build_embedding_layers(
-            [input_ids, encoder_positions, token_type_ids],
+            embedding_input_dict,
             shared_embedding_layer=shared_embedding_layer,
             initializer=initializer,
             config=config,
@@ -263,11 +282,7 @@ class BertBuilder:
         )
 
         bert = keras.Model(
-            inputs={
-                "input_ids": input_ids,
-                "attention_mask": attention_mask,
-                "token_type_ids": token_type_ids,
-            },
+            inputs=inputs,
             outputs={
                 "encoder_hidden_states": encoder_hidden_states,
                 "mlm": mlm,
