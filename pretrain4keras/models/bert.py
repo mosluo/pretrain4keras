@@ -19,157 +19,6 @@ from pretrain4keras.layers import (
 )
 
 
-def build_embedding_layers(
-    embedding_input_dict,
-    shared_embedding_layer,
-    initializer=None,
-    config=None,
-    name_prefix="",
-):
-    """创建embedding层: token+position+layer_norm+dropout_rate"""
-    input_ids = embedding_input_dict["input_ids"]
-    positions = embedding_input_dict["encoder_positions"]
-    token_type_ids = embedding_input_dict["token_type_ids"]
-
-    # token向量
-    embed_tokens = shared_embedding_layer(input_ids)
-    # 位置向量
-    embed_positions = keras.layers.Embedding(
-        input_dim=config["max_position_embeddings"],
-        output_dim=config["hidden_size"],
-        embeddings_initializer=initializer,
-        name=name_prefix + ".position_embeddings",
-    )(positions)
-    # segment向量
-    embed_token_type_ids = keras.layers.Embedding(
-        input_dim=config["type_vocab_size"],
-        output_dim=config["hidden_size"],
-        embeddings_initializer=initializer,
-        name=name_prefix + ".token_type_embeddings",
-    )(token_type_ids)
-
-    # 位置向量、token向量、segment向量相加
-    x = keras.layers.Add(name=name_prefix + ".add")(
-        [embed_tokens, embed_positions, embed_token_type_ids]
-    )
-
-    # ln+dropout_rate
-    hidden_states = keras.layers.LayerNormalization(
-        epsilon=1e-12, name=name_prefix + ".LayerNorm"
-    )(x)
-    hidden_states = keras.layers.Dropout(
-        config["hidden_dropout_prob"], name=name_prefix + ".dropout_rate"
-    )(hidden_states)
-    return hidden_states
-
-
-def build_transformer_encoder_layer(
-    hidden_states,
-    attention_mask,
-    initializer=None,
-    config=None,
-    name_prefix="",
-):
-    """创建一层transformer_encoder层"""
-    embed_dim = config["hidden_size"]
-    # 0.各种层定义
-    self_attention = MultiHeadAttentionV2(
-        embed_dim=embed_dim,
-        num_heads=config["num_attention_heads"],
-        dropout_rate=config["attention_probs_dropout_prob"],
-        kernel_initializer=initializer,
-        name=name_prefix + ".attention.self",
-    )
-    activation_fn = keras.layers.Activation(
-        config["hidden_act"], name=name_prefix + ".activation"
-    )
-    self_attention_layer_norm = keras.layers.LayerNormalization(
-        epsilon=1e-12, name=name_prefix + ".attention.output.LayerNorm"
-    )
-
-    fc1 = keras.layers.Dense(
-        config["intermediate_size"], name=name_prefix + ".intermediate.dense"
-    )
-    fc2 = keras.layers.Dense(embed_dim, name=name_prefix + ".output.dense")
-    final_layer_norm = keras.layers.LayerNormalization(
-        epsilon=1e-12, name=name_prefix + ".output.LayerNorm"
-    )
-
-    # 1.开始计算
-    residual = hidden_states
-
-    # Self Attention
-    hidden_states, self_attention_scores = self_attention(
-        hidden_states=hidden_states,
-        key_states=hidden_states,
-        value_states=hidden_states,
-        attention_mask=attention_mask,
-    )
-    hidden_states = keras.layers.Dropout(
-        config["hidden_dropout_prob"], name=name_prefix + ".dropout1"
-    )(hidden_states)
-    hidden_states = keras.layers.Add(name=name_prefix + ".add1")(
-        [residual, hidden_states]
-    )
-    hidden_states = self_attention_layer_norm(hidden_states)
-
-    # Fully Connected
-    residual = hidden_states
-    hidden_states = activation_fn(fc1(hidden_states))
-    hidden_states = keras.layers.Dropout(
-        config["attention_probs_dropout_prob"], name=name_prefix + ".activation_dropout"
-    )(hidden_states)
-    hidden_states = fc2(hidden_states)
-    hidden_states = keras.layers.Dropout(
-        config["hidden_dropout_prob"], name=name_prefix + ".dropout2"
-    )(hidden_states)
-    hidden_states = keras.layers.Add(name=name_prefix + ".add2")(
-        [residual, hidden_states]
-    )
-    hidden_states = final_layer_norm(hidden_states)
-
-    return hidden_states, self_attention_scores
-
-
-def build_pooler_nsp(encoder_hidden_states, initializer, config, name_prefix):
-    """创建pooler、nsp层"""
-    pooler = keras.layers.Dense(
-        config["hidden_size"],
-        kernel_initializer=initializer,
-        activation="tanh",
-        name=name_prefix + ".pooler.dense",
-    )(encoder_hidden_states[:, 0])
-
-    nsp = keras.layers.Dense(
-        2,
-        kernel_initializer=initializer,
-        activation="softmax",
-        name=name_prefix + ".nsp.dense",
-    )(pooler)
-    return pooler, nsp
-
-
-def build_mlm(
-    encoder_hidden_states, shared_embedding_layer, initializer, config, name_prefix
-):
-    """
-    创建mlm层 = encoder_hidden_states -> dense -> activation -> ln -> shared_token_embedding -> bias ->softmax
-    """
-    dense = keras.layers.Dense(
-        config["hidden_size"],
-        kernel_initializer=initializer,
-        activation=config["hidden_act"],
-        name=name_prefix + ".dense",
-    )(encoder_hidden_states)
-    layer_norm = keras.layers.LayerNormalization(
-        epsilon=1e-12, name=name_prefix + ".LayerNorm"
-    )(dense)
-    shared_embedding = shared_embedding_layer(layer_norm)
-    bias = BiasLayer(name=name_prefix + ".bias")(shared_embedding)
-    softmax = keras.layers.Activation("softmax", name=name_prefix + ".softmax")(bias)
-    return softmax
-
-
 class BertBuilder:
     @staticmethod
     def get_initializer(initializer_range=0.02):
@@ -214,6 +63,160 @@ class BertBuilder:
         }
         return inputs
 
+    @staticmethod
+    def build_embedding_layers(
+        embedding_input_dict,
+        shared_embedding_layer,
+        initializer=None,
+        config=None,
+        name_prefix="",
+    ):
+        """创建embedding层: token+position+layer_norm+dropout_rate"""
+        input_ids = embedding_input_dict["input_ids"]
+        positions = embedding_input_dict["encoder_positions"]
+        token_type_ids = embedding_input_dict["token_type_ids"]
+
+        # token向量
+        embed_tokens = shared_embedding_layer(input_ids)
+        # 位置向量
+        embed_positions = keras.layers.Embedding(
+            input_dim=config["max_position_embeddings"],
+            output_dim=config["hidden_size"],
+            embeddings_initializer=initializer,
+            name=name_prefix + ".position_embeddings",
+        )(positions)
+        # segment向量
+        embed_token_type_ids = keras.layers.Embedding(
+            input_dim=config["type_vocab_size"],
+            output_dim=config["hidden_size"],
+            embeddings_initializer=initializer,
+            name=name_prefix + ".token_type_embeddings",
+        )(token_type_ids)
+
+        # 位置向量、token向量、segment向量相加
+        x = keras.layers.Add(name=name_prefix + ".add")(
+            [embed_tokens, embed_positions, embed_token_type_ids]
+        )
+
+        # ln+dropout_rate
+        hidden_states = keras.layers.LayerNormalization(
+            epsilon=1e-12, name=name_prefix + ".LayerNorm"
+        )(x)
+        hidden_states = keras.layers.Dropout(
+            config["hidden_dropout_prob"], name=name_prefix + ".dropout_rate"
+        )(hidden_states)
+        return hidden_states
+
+    @staticmethod
+    def build_transformer_encoder_layer(
+        hidden_states,
+        attention_mask,
+        initializer=None,
+        config=None,
+        name_prefix="",
+    ):
+        """创建一层transformer_encoder层"""
+        embed_dim = config["hidden_size"]
+        # 0.各种层定义
+        self_attention = MultiHeadAttentionV2(
+            embed_dim=embed_dim,
+            num_heads=config["num_attention_heads"],
+            dropout_rate=config["attention_probs_dropout_prob"],
+            kernel_initializer=initializer,
+            name=name_prefix + ".attention.self",
+        )
+        activation_fn = keras.layers.Activation(
+            config["hidden_act"], name=name_prefix + ".activation"
+        )
+        self_attention_layer_norm = keras.layers.LayerNormalization(
+            epsilon=1e-12, name=name_prefix + ".attention.output.LayerNorm"
+        )
+
+        fc1 = keras.layers.Dense(
+            config["intermediate_size"], name=name_prefix + ".intermediate.dense"
+        )
+        fc2 = keras.layers.Dense(embed_dim, name=name_prefix + ".output.dense")
+        final_layer_norm = keras.layers.LayerNormalization(
+            epsilon=1e-12, name=name_prefix + ".output.LayerNorm"
+        )
+
+        # 1.开始计算
+        residual = hidden_states
+
+        # Self Attention
+        hidden_states, self_attention_scores = self_attention(
+            hidden_states=hidden_states,
+            key_states=hidden_states,
+            value_states=hidden_states,
+            attention_mask=attention_mask,
+        )
+        hidden_states = keras.layers.Dropout(
+            config["hidden_dropout_prob"], name=name_prefix + ".dropout1"
+        )(hidden_states)
+        hidden_states = keras.layers.Add(name=name_prefix + ".add1")(
+            [residual, hidden_states]
+        )
+        hidden_states = self_attention_layer_norm(hidden_states)
+
+        # Fully Connected
+        residual = hidden_states
+        hidden_states = activation_fn(fc1(hidden_states))
+        hidden_states = keras.layers.Dropout(
+            config["attention_probs_dropout_prob"],
+            name=name_prefix + ".activation_dropout",
+        )(hidden_states)
+        hidden_states = fc2(hidden_states)
+        hidden_states = keras.layers.Dropout(
+            config["hidden_dropout_prob"], name=name_prefix + ".dropout2"
+        )(hidden_states)
+        hidden_states = keras.layers.Add(name=name_prefix + ".add2")(
+            [residual, hidden_states]
+        )
+        hidden_states = final_layer_norm(hidden_states)
+
+        return hidden_states, self_attention_scores
+
+    @staticmethod
+    def build_pooler_nsp(encoder_hidden_states, initializer, config, name_prefix):
+        """创建pooler、nsp层"""
+        pooler = keras.layers.Dense(
+            config["hidden_size"],
+            kernel_initializer=initializer,
+            activation="tanh",
+            name=name_prefix + ".pooler.dense",
+        )(encoder_hidden_states[:, 0])
+
+        nsp = keras.layers.Dense(
+            2,
+            kernel_initializer=initializer,
+            activation="softmax",
+            name=name_prefix + ".nsp.dense",
+        )(pooler)
+        return pooler, nsp
+
+    @staticmethod
+    def build_mlm(
+        encoder_hidden_states, shared_embedding_layer, initializer, config, name_prefix
+    ):
+        """
+        创建mlm层 = encoder_hidden_states -> dense -> activation -> ln -> shared_token_embedding -> bias ->softmax
+        """
+        dense = keras.layers.Dense(
+            config["hidden_size"],
+            kernel_initializer=initializer,
+            activation=config["hidden_act"],
+            name=name_prefix + ".dense",
+        )(encoder_hidden_states)
+        layer_norm = keras.layers.LayerNormalization(
+            epsilon=1e-12, name=name_prefix + ".LayerNorm"
+        )(dense)
+        shared_embedding = shared_embedding_layer(layer_norm)
+        bias = BiasLayer(name=name_prefix + ".bias")(shared_embedding)
+        softmax = keras.layers.Activation("softmax", name=name_prefix + ".softmax")(
+            bias
+        )
+        return softmax
+
     def build_keras_bert_model(self, config):
         """
         创建keras bert model
@@ -241,7 +244,7 @@ class BertBuilder:
         # embedding
         embedding_input_dict = {"encoder_positions": encoder_positions}
         embedding_input_dict.update(inputs)
-        encoder_hidden_states = build_embedding_layers(
+        encoder_hidden_states = self.build_embedding_layers(
             embedding_input_dict,
             shared_embedding_layer=shared_embedding_layer,
             initializer=initializer,
@@ -259,7 +262,7 @@ class BertBuilder:
             (
                 encoder_hidden_states,
                 encoder_self_attention_scores,
-            ) = build_transformer_encoder_layer(
+            ) = self.build_transformer_encoder_layer(
                 encoder_hidden_states,
                 attention_mask=attention_mask_expand,
                 config=config,
@@ -268,12 +271,12 @@ class BertBuilder:
 
         # pooler = x[:,0] -> dense -> tanh
         # nsp = pooler -> dense -> softmax
-        pooler, nsp = build_pooler_nsp(
+        pooler, nsp = self.build_pooler_nsp(
             encoder_hidden_states, initializer, config, name_prefix="bert"
         )
 
         # mlm = x -> dense -> ln -> shared_token_embedding -> bias ->softmax
-        mlm = build_mlm(
+        mlm = self.build_mlm(
             encoder_hidden_states,
             shared_embedding_layer,
             initializer,
